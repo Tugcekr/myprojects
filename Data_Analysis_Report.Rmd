@@ -1,5 +1,5 @@
 ---
-title: "Segmentation with EDA and R"
+title: "Perakende Satış Analizi: Gelir, Müşteri Segmentasyonu ve Anomali Tespiti"
 output:
   html_document:
     df_print: paged
