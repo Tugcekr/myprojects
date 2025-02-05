@@ -1,0 +1,264 @@
+---
+title: "Segmentation with EDA and R"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+# Gerekli kütüphaneleri yükleme
+library(readr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(DataExplorer)
+```
+
+## Veriyi Yükleme ve Temel İnceleme
+
+```{r}
+#Veriyi yükleme ve temel inceleme
+data <- read.csv("C:/Users/Tugce/OneDrive/Masaüstü/data.csv")
+head(data)
+glimpse(data)
+dim(data)
+View(data)
+```
+
+## Eksik Veri Analizi
+
+```{r}
+#Eksik veri analizi
+plot_missing(data)
+colSums(is.na(data))
+sapply(data, function(x) mean(is.na(x)) * 100)
+```
+
+## Tarih İşlemleri ve İadeleri Kaldırma İşlemi
+
+```{r}
+library(stringr)
+
+data <- data %>%
+  filter(!str_starts(InvoiceNo, "C"), Quantity > 0, UnitPrice > 0) %>%
+  mutate(date = as.Date(InvoiceDate, format = "%d/%m/%Y"),
+         month = month(date, label = TRUE),
+         year = year(date),
+         day = day(date),
+         week = isoweek(date),
+         dayOfWeek = weekdays(date))
+print(data)
+```
+
+## Eksik Verileri Temizleme
+
+```{r}
+#Eksik verileri temizleme
+data <- na.omit(data)
+```
+
+## Gelir Hesaplama
+
+```{r}
+#Gelir hesaplama
+data <- data %>% 
+  mutate(linetotal = Quantity * UnitPrice)
+```
+
+## Zaman Bazlı Gelir Analizi
+
+```{r}
+#Zaman bazlı gelir analizi
+data %>%
+  group_by(date) %>%
+  summarise(revenue = sum(linetotal)) %>%
+  ggplot(aes(date, revenue)) + 
+  geom_line() + 
+  geom_smooth(se = FALSE) + 
+  labs(title = "Günlük Gelir Trendi")
+```
+
+## Aylık Gelir Dağılımı
+
+```{r}
+#Aylık gelir dağılımı
+data %>%
+  group_by(month, year) %>%
+  summarise(revenue = sum(linetotal)) %>%
+  ggplot(aes(month, revenue, fill = factor(year))) +
+  geom_col(position = "dodge") + geom_text(aes(label = revenue), vjust = -0.5) + 
+  labs(title = "Aylık Gelir Dağılımı")
+print(data)
+```
+
+## Haftalık Gelir Dağılımı
+
+```{r}
+#Haftalık gelir dağılımı
+data %>%
+  group_by(week, year) %>%
+  summarise(revenue = sum(linetotal)) %>%
+  ggplot(aes(week, revenue, color = factor(year))) +
+  geom_line() + geom_text(aes(label = revenue), vjust = -0.5) + 
+  labs(title = "Haftalık Gelir Trendi")
+```
+
+## Haftanın Günlerine Göre Gelir Dağılımı
+
+```{r}
+#Haftanın günlerine göre gelir dağılımı
+data %>%
+  group_by(dayOfWeek) %>%
+  summarise(revenue = sum(linetotal)) %>%
+  ggplot(aes(dayOfWeek, revenue)) +
+  geom_col(fill = "blue") +
+  labs(title = "Haftanın Günlerine Göre Gelir")
+```
+
+## Ülkelere Göre Analiz: İşlem Sayısı Kazanç ve Ortalama Satış Tutarı
+
+```{r}
+#Ülkelere göre analiz:işlem sayısı kazanç ve ortalama satış tutarını verir.
+country_summary <- data %>%
+  group_by(Country) %>%
+  summarise(
+    revenue = sum(linetotal),
+    transactions = n_distinct(InvoiceNo),
+    avg_order_value = round(revenue / transactions, 2)
+  ) %>%
+  arrange(desc(revenue))
+
+#Top5 ülke
+top5_countries <- head(country_summary, 5)
+print(top5_countries)
+ggplot(top5_countries, aes(Country, revenue)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  coord_flip() +
+  labs(title = "En Yüksek Gelire Sahip 5 Ülke", x = "Gelir", y = "Ülke")
+```
+
+## Müşteri Segmentasyonu
+
+```{r}
+#Müşteri segmentasyonu: kazancın en fazla olduğu müşterileri listeler.
+customer_summary <- data %>%
+  group_by(CustomerID) %>%
+  summarise(
+    revenue = sum(linetotal),
+    transactions = n_distinct(InvoiceNo),
+    avg_order_value = round(revenue / transactions, 2)
+  ) %>%
+  arrange(desc(revenue))
+print(customer_summary)
+#Müşteri dağılım grafikleri
+ggplot(customer_summary, aes(revenue))+ 
+  geom_histogram(binwidth = 10000, fill = "blue")+
+  labs(title = "Müşteri Gelir Dağılımı")
+
+ggplot(customer_summary, aes(transactions)) + 
+  geom_histogram(binwidth = 5, fill="blue") + 
+  labs(title = "Müşteri İşlem Sayısı Dağılımı")
+```
+
+## İstatistiksel Analiz
+
+```{r}
+#Normallik testi (örnek boyutu küçültülmüş)
+set.seed(123)
+shapiro.test(sample(data$linetotal, 5000)) #Eğer p < 0.05 ise, verinin normal dağılıma uymadığı sonucuna varılır. Bu durumda, p-value < 2.2e-16 çok küçük olduğu için, verinin normal dağılıma uymadığını söyleyebiliriz.
+
+#5000 rastgele örnek alıyoruz
+set.seed(123)
+sample_data <- sample(data$linetotal, 5000)
+qqnorm(sample_data, main = "QQ Plot - Müşteri Gelir Dağılımı")
+qqline(sample_data, col = "red")  # Normal dağılım çizgisi : aynı şekilde normal dağılmadığını görebiliriz.
+```
+
+## Aylar Arası Gelir Farkı Testi
+
+```{r}
+#Aylar arası gelir farkı testi
+kruskal.test(linetotal ~ month, data = data) #farklı aylarda elde edilen gelirlerin dağılımı istatistiksel olarak farklıdır.
+```
+
+## Fiyat Dağılım Analizi
+
+```{r}
+#Fiyat dağılım analizi
+ggplot(data, aes(UnitPrice)) + 
+  geom_boxplot(fill="blue") + 
+  scale_y_log10() +
+  labs(title = "Ürün Fiyat Dağılımı")
+```
+
+## En Çok Satan 10 Ürün
+
+```{r}
+#En çok satan 10 ürün
+top_products <- data %>%
+  group_by(StockCode, Description) %>%
+  summarise(
+    total_quantity=sum(Quantity),
+    total_revenue=sum(linetotal)
+  ) %>%
+  arrange(desc(total_revenue))%>% head(10)
+print(top_products)
+```
+
+## RFM Hesaplamaları
+
+```{r}
+#RFM hesaplamaları
+rfm_data <- data %>%
+  group_by(CustomerID) %>%
+  summarise(
+    Recency = as.numeric(difftime(max(date), Sys.Date(), units = "days")),
+    Frequency = n_distinct(InvoiceNo),
+    Monetary = sum(linetotal)
+  ) %>%
+  mutate(
+    R_Score = ntile(desc(Recency), 5),
+    F_Score = ntile(Frequency, 5),
+    M_Score = ntile(Monetary, 5),
+    RFM_Score = R_Score * 100 + F_Score * 10 + M_Score
+  )
+print(rfm_data)
+#RFM segment tanımları
+rfm_segments <- rfm_data %>%
+  mutate(Segment = case_when(
+    RFM_Score >= 555 ~ "Champions",
+    RFM_Score >= 444 ~ "Loyal Customers",
+    RFM_Score >= 333 ~ "Potential Loyalists",
+    RFM_Score >= 222 ~ "New Customers",
+    TRUE ~ "Risk"
+  ))
+print(rfm_segments)
+
+#Segment dağılımı
+ggplot(rfm_segments, aes(x = Segment, fill = Segment)) +
+  geom_bar() +
+  coord_flip() +
+  labs(title = "RFM segment dağılımı")
+```
+
+## Günlük Gelir Anomalileri
+
+```{r}
+install.packages("anomalize")
+library(anomalize)
+
+#Günlük gelir anomalileri
+anomaly_data <- data %>%
+  group_by(date) %>%
+  summarise(revenue = sum(linetotal)) %>%
+  time_decompose(revenue, method = "stl") %>%
+  anomalize(remainder) %>%
+  time_recompose()
+
+# Anomali görselleştirme
+anomaly_data %>% plot_anomalies() +
+  labs(title = "Anormal gelir günleri")
+```
